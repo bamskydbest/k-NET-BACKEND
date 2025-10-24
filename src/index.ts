@@ -13,10 +13,9 @@ console.log("SMTP_USER:", process.env.SMTP_USER);
 console.log("SMTP_PASS:", process.env.SMTP_PASS ? "Loaded ✅" : "❌ Missing");
 
 const app = express();
-app.use(cors());
 app.use(cors({
   origin: [
-    "https://k-net-backend.onrender.com/",  
+    "https://knetgh.netlify.app/",  
     
   ],
   methods: ["GET", "POST"],
