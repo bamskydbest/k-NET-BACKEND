@@ -14,6 +14,14 @@ console.log("SMTP_PASS:", process.env.SMTP_PASS ? "Loaded ✅" : "❌ Missing");
 
 const app = express();
 app.use(cors());
+app.use(cors({
+  origin: [
+    "https://k-net-backend.onrender.com/",  
+    
+  ],
+  methods: ["GET", "POST"],
+}));
+
 app.use(bodyParser.json());
 
 // ✅ Connect to MongoDB
