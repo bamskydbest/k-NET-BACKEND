@@ -1,16 +1,21 @@
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import Brevo from "@getbrevo/brevo";
 dotenv.config();
 console.log("SMTP_HOST:", process.env.SMTP_HOST);
 console.log("SMTP_PORT:", process.env.SMTP_PORT);
 console.log("SMTP_USER:", process.env.SMTP_USER);
 console.log("SMTP_PASS:", process.env.SMTP_PASS ? "Loaded ✅" : "❌ Missing");
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: [
+        "https://knetgh.netlify.app",
+    ],
+    methods: ["GET", "POST"],
+}));
 app.use(bodyParser.json());
 // ✅ Connect to MongoDB
 mongoose
@@ -23,44 +28,38 @@ const newsletterSchema = new mongoose.Schema({
     subscribedAt: { type: Date, default: Date.now },
 });
 const Newsletter = mongoose.model("Newsletter", newsletterSchema);
-// ✅ Nodemailer transporter (Brevo SMTP)
-let transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: false, // use TLS
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-    },
-    tls: {
-        rejectUnauthorized: false,
-    },
-    logger: true,
-    debug: true,
-});
-// ✅ Contact Form Route
+// ✅ Contact Form Route (using Brevo API)
 app.post("/api/contact", async (req, res) => {
     const { name, email, message } = req.body;
     console.log("Contact form submitted:", { name, email, message });
     try {
-        await transporter.sendMail({
-            from: `"Mahmoud Abdulmajeed" <${process.env.SMTP_USER}>`, // ✅ must match verified Brevo sender
-            to: process.env.RECEIVER_EMAIL, // your receiving email address
-            replyTo: email, // user's email from contact form
-            subject: `New contact from ${name}`,
-            text: message,
-            html: `
-    <h2>New contact message</h2>
-    <p><strong>Name:</strong> ${name}</p>
-    <p><strong>Email:</strong> ${email}</p>
-    <p><strong>Message:</strong> ${message}</p>
-  `,
-        });
-        res.status(200).json({ ok: true });
+        const apiInstance = new Brevo.TransactionalEmailsApi();
+        apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, process.env.BREVO_API_KEY);
+        const receiverEmail = process.env.RECEIVER_EMAIL;
+        // Type-safe check to avoid 'undefined' email errors
+        if (!receiverEmail || !email) {
+            return res
+                .status(400)
+                .json({ ok: false, error: "Missing sender or receiver email." });
+        }
+        const sendSmtpEmail = {
+            sender: { name: name || "Anonymous", email }, // dynamic sender info
+            to: [{ email: receiverEmail }],
+            replyTo: { email },
+            subject: `New contact from ${name || "Unknown Sender"}`,
+            htmlContent: `
+        <h2>New Contact Message</h2>
+        <p><strong>Name:</strong> ${name || "N/A"}</p>
+        <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Message:</strong><br/>${message}</p>
+      `,
+        };
+        await apiInstance.sendTransacEmail(sendSmtpEmail);
+        res.status(200).json({ ok: true, message: "Email sent successfully!" });
     }
-    catch (err) {
-        console.error("Error sending email:", err);
-        res.status(500).json({ ok: false });
+    catch (error) {
+        console.error("Error sending email via Brevo API:", error.response?.text || error.message);
+        res.status(500).json({ ok: false, error: "Failed to send email" });
     }
 });
 app.use((req, res, next) => {
@@ -81,7 +80,6 @@ app.post("/api/subscribe", async (req, res) => {
     }
     catch (err) {
         if (err.code === 11000) {
-            // duplicate email
             return res.status(400).json({ ok: false, error: "Email already subscribed" });
         }
         console.error("Error saving subscription:", err);
